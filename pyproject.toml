@@ -1,0 +1,110 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "teamboard"
+version = "0.1.0"
+description = "TeamBoard - a multi-tenant project and task management API"
+requires-python = ">=3.12"
+# Every dependency is justified in the README ("Dependencies" section).
+# Exact versions used for builds and CI are pinned in constraints.txt.
+dependencies = [
+    "fastapi>=0.162",
+    "uvicorn[standard]>=0.54",
+    "sqlalchemy[asyncio]>=2.0.57,<2.1",
+    "asyncpg>=0.32",
+    "alembic>=1.20",
+    "pydantic[email]>=2.14",
+    "pydantic-settings>=2.16",
+    "argon2-cffi>=25.1",
+    "pyjwt>=2.15",
+    "redis>=5.3",
+    "arq>=0.28",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.2",
+    "pytest-asyncio>=1.5",
+    "pytest-cov>=7.1",
+    "httpx>=0.28",
+    "testcontainers[postgres,redis]>=4.13",
+    "ruff>=0.17",
+    "mypy>=2.4",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/teamboard"]
+
+# --------------------------------------------------------------------------- ruff
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W", "F",  # pycodestyle, pyflakes
+    "I",            # import order
+    "N",            # naming
+    "UP",           # modern syntax
+    "B",            # bugbear
+    "C4",           # comprehensions
+    "SIM",          # simplifications
+    "ASYNC",        # async pitfalls
+    "S",            # security (bandit)
+    "DTZ",          # naive datetimes
+    "T20",          # stray prints
+    "PT",           # pytest style
+    "RUF",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests assert freely and use throwaway credentials.
+"tests/**" = ["S101", "S105", "S106", "S311"]
+# Migrations build static DDL from validated identifiers.
+"migrations/**" = ["S608"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["teamboard"]
+
+# --------------------------------------------------------------------------- mypy
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+plugins = ["pydantic.mypy"]
+files = ["src", "tests", "migrations"]
+mypy_path = "src"
+
+[[tool.mypy.overrides]]
+# No type information is published for these packages.
+module = ["testcontainers.*", "asyncpg.*"]
+ignore_missing_imports = true
+
+# --------------------------------------------------------------------------- pytest
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+# One event loop for the whole session: the app's connection pools are bound to it.
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+addopts = "-ra --strict-markers --strict-config"
+
+# --------------------------------------------------------------------------- coverage
+[tool.coverage.run]
+source = ["teamboard"]
+branch = true
+# SQLAlchemy's asyncio bridge runs code inside greenlets.
+concurrency = ["greenlet", "thread"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+fail_under = 90
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
