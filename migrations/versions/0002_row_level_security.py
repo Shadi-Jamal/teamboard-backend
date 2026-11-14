@@ -12,10 +12,19 @@ audit_logs            same, but SELECT and INSERT only             (append-only)
 memberships           + a user may read their own memberships      (tenant switcher)
 api_keys, invitations + lookup of the single row whose secret hash
                         the caller presents                        (pre-tenant auth)
-tenants               the current tenant, or tenants the user is a member of
+tenants               the current tenant, or tenants the user is a member of;
+                      new tenants can only be created on the free plan
 users                 own row, co-members of the current tenant, lookup by exact
                       login email; anyone may register (INSERT)
 refresh_tokens        own tokens, or the token whose hash is presented
+
+Privileges
+----------
+The application role receives the minimum it needs, down to column level: UPDATE is
+granted only on the columns the application legitimately changes. In particular it
+can never update ``tenant_id`` (a row cannot change tenant), ``tenants.plan``
+(quotas are a billing decision) or ``users.is_active``. DELETE exists only for
+memberships; everything else is soft-deleted, revoked or append-only.
 
 Revision ID: 0002
 Revises: 0001
@@ -84,7 +93,7 @@ POLICIES: dict[str, list[tuple[str, str, str | None, str | None]]] = {
             f"id IN (SELECT m.tenant_id FROM memberships m WHERE m.user_id = {USER})",
             None,
         ),
-        ("current_tenant_insert", "INSERT", None, f"id = {TENANT}"),
+        ("current_tenant_insert", "INSERT", None, f"id = {TENANT} AND plan = 'free'"),
         ("current_tenant_update", "UPDATE", f"id = {TENANT}", f"id = {TENANT}"),
     ],
     "users": [
@@ -110,20 +119,40 @@ POLICIES: dict[str, list[tuple[str, str, str | None, str | None]]] = {
     ],
 }
 
-# Least privilege: the application role gets exactly the commands it uses.
-# Projects and tasks are soft-deleted; audit logs are append-only.
-GRANTS: dict[str, str] = {
-    "tenants": "SELECT, INSERT, UPDATE",
-    "users": "SELECT, INSERT, UPDATE",
-    "refresh_tokens": "SELECT, INSERT, UPDATE, DELETE",
-    "memberships": "SELECT, INSERT, UPDATE, DELETE",
-    "invitations": "SELECT, INSERT, UPDATE",
-    "api_keys": "SELECT, INSERT, UPDATE",
-    "projects": "SELECT, INSERT, UPDATE",
-    "tasks": "SELECT, INSERT, UPDATE",
-    "audit_logs": "SELECT, INSERT",
-    "idempotency_keys": "SELECT, INSERT, UPDATE, DELETE",
-    "export_jobs": "SELECT, INSERT, UPDATE",
+# Least privilege: table -> (table-level privileges, columns that may be updated).
+GRANTS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "tenants": ("SELECT, INSERT", ("name", "updated_at")),
+    "users": ("SELECT, INSERT", ("password_hash", "updated_at")),
+    "refresh_tokens": ("SELECT, INSERT", ("used_at", "revoked_at")),
+    "memberships": ("SELECT, INSERT, DELETE", ("role", "updated_at")),
+    "invitations": ("SELECT, INSERT", ("accepted_at", "revoked_at")),
+    "api_keys": ("SELECT, INSERT", ("revoked_at", "last_used_at")),
+    "projects": (
+        "SELECT, INSERT",
+        ("name", "description", "status", "updated_at", "deleted_at"),
+    ),
+    "tasks": (
+        "SELECT, INSERT",
+        (
+            "title",
+            "description",
+            "status",
+            "priority",
+            "assignee_id",
+            "due_date",
+            "updated_at",
+            "deleted_at",
+        ),
+    ),
+    "audit_logs": ("SELECT, INSERT", ()),
+    "idempotency_keys": (
+        "SELECT, INSERT",
+        ("fingerprint", "status_code", "response_body", "created_at", "expires_at"),
+    ),
+    "export_jobs": (
+        "SELECT, INSERT",
+        ("status", "attempts", "last_error", "result", "started_at", "finished_at"),
+    ),
 }
 
 
@@ -161,8 +190,11 @@ def upgrade() -> None:
             op.execute(statement)
 
     op.execute(f"GRANT USAGE ON SCHEMA public TO {APP_ROLE}")
-    for table, privileges in GRANTS.items():
+    for table, (privileges, updatable_columns) in GRANTS.items():
         op.execute(f"GRANT {privileges} ON {table} TO {APP_ROLE}")
+        if updatable_columns:
+            columns = ", ".join(updatable_columns)
+            op.execute(f"GRANT UPDATE ({columns}) ON {table} TO {APP_ROLE}")
 
 
 def downgrade() -> None:

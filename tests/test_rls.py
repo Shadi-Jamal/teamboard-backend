@@ -252,14 +252,68 @@ async def test_update_and_delete_cannot_touch_another_tenants_rows(
 async def test_cannot_move_a_row_into_another_tenant(
     worlds: Worlds, app_engine: AsyncEngine
 ) -> None:
+    """tenant_id is not an updatable column for the application role at all, so a
+    row can never change tenant (the policy's WITH CHECK would refuse it as well)."""
     a, b = worlds
+    for table in TENANT_OWNED_TABLES:
+        async with app_engine.connect() as connection:
+            await set_context(connection, tenant_id=a.tenant_id)
+            with pytest.raises(ProgrammingError, match=f"permission denied for table {table}"):
+                await connection.execute(
+                    text(f"UPDATE {table} SET tenant_id = :other"),
+                    {"other": uuid.UUID(b.tenant_id)},
+                )
+
+
+@pytest.mark.parametrize(
+    ("table", "assignment"),
+    [
+        ("tenants", "plan = 'enterprise'"),  # quotas are a billing decision
+        ("tenants", "slug = 'hijacked'"),
+        ("users", "is_active = true"),  # a disabled account cannot re-enable itself
+        ("users", "email = 'attacker@example.com'"),
+        ("memberships", "user_id = gen_random_uuid()"),
+        ("api_keys", "scopes = '{projects:delete}'"),  # scopes are fixed at creation
+        ("api_keys", "key_hash = 'x'"),
+        ("api_keys", "expires_at = NULL"),
+        ("invitations", "email = 'attacker@example.com'"),
+        ("invitations", "role = 'admin'"),
+        ("invitations", "token_hash = 'x'"),
+        ("refresh_tokens", "expires_at = now() + interval '10 years'"),
+        ("refresh_tokens", "token_hash = 'x'"),
+        ("projects", "id = gen_random_uuid()"),
+        ("tasks", "project_id = gen_random_uuid()"),
+        ("export_jobs", "created_at = now()"),
+        ("audit_logs", "action = 'forged'"),
+    ],
+)
+async def test_application_role_cannot_change_protected_columns(
+    table: str, assignment: str, worlds: Worlds, app_engine: AsyncEngine
+) -> None:
+    """Column-level least privilege: even inside its own tenant the application
+    role may only update the columns the application legitimately changes."""
+    a, _ = worlds
     async with app_engine.connect() as connection:
-        await set_context(connection, tenant_id=a.tenant_id)
-        with pytest.raises(DBAPIError, match="violates row-level security policy"):
-            await connection.execute(
-                text("UPDATE projects SET tenant_id = :other WHERE id = :id"),
-                {"other": uuid.UUID(b.tenant_id), "id": uuid.UUID(a.project["id"])},
-            )
+        await set_context(connection, tenant_id=a.tenant_id, user_id=a.ws.owner.id)
+        with pytest.raises(ProgrammingError, match=f"permission denied for table {table}"):
+            await connection.execute(text(f"UPDATE {table} SET {assignment}"))
+
+
+async def test_application_role_can_only_create_tenants_on_the_free_plan(
+    app_engine: AsyncEngine,
+) -> None:
+    insert = text("INSERT INTO tenants (id, name, slug, plan) VALUES (:id, 'T', :slug, :plan)")
+    for plan, allowed in (("enterprise", False), ("pro", False), ("free", True)):
+        tenant_id = uuid.uuid4()
+        params = {"id": tenant_id, "slug": f"plan-test-{tenant_id.hex[:12]}", "plan": plan}
+        async with app_engine.connect() as connection:
+            await set_context(connection, tenant_id=str(tenant_id))
+            if allowed:
+                await connection.execute(insert, params)
+            else:
+                with pytest.raises(DBAPIError, match="violates row-level security policy"):
+                    await connection.execute(insert, params)
+            await connection.rollback()
 
 
 async def test_malformed_tenant_setting_fails_closed(
@@ -282,15 +336,17 @@ async def test_audit_log_is_append_only_for_the_application_role(
                 await connection.execute(text(statement))
 
 
-async def test_soft_deleted_tables_cannot_be_hard_deleted_by_the_application_role(
-    worlds: Worlds, app_engine: AsyncEngine
+@pytest.mark.parametrize("table", [t for t in ALL_TABLES if t != "memberships"])
+async def test_application_role_cannot_hard_delete(
+    table: str, worlds: Worlds, app_engine: AsyncEngine
 ) -> None:
+    """Data is soft-deleted, revoked or append-only. The single exception is a
+    membership row, which is removed when a member leaves."""
     a, _ = worlds
-    for table in ("projects", "tasks", "tenants", "users"):
-        async with app_engine.connect() as connection:
-            await set_context(connection, tenant_id=a.tenant_id)
-            with pytest.raises(ProgrammingError, match=f"permission denied for table {table}"):
-                await connection.execute(text(f"DELETE FROM {table}"))
+    async with app_engine.connect() as connection:
+        await set_context(connection, tenant_id=a.tenant_id, user_id=a.ws.owner.id)
+        with pytest.raises(ProgrammingError, match=f"permission denied for table {table}"):
+            await connection.execute(text(f"DELETE FROM {table}"))
 
 
 # ------------------------------------------------------------ connection pool
