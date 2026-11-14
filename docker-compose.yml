@@ -12,6 +12,10 @@ x-app: &app
   build: .
   image: teamboard:local
   restart: unless-stopped
+  # The application writes nothing to disk.
+  read_only: true
+  tmpfs:
+    - /tmp
   environment: &app-environment
     ENVIRONMENT: development
     LOG_LEVEL: ${LOG_LEVEL:-INFO}
@@ -81,6 +85,8 @@ services:
   worker:
     <<: *app
     command: ["python", "-m", "teamboard.worker"]
+    # Longer than the worker's own 30 s grace period for running jobs.
+    stop_grace_period: 45s
     healthcheck:
       # Replaces the image's HTTP check: is a worker heartbeat present in Redis?
       test: ["CMD", "python", "-m", "teamboard.worker", "--check"]

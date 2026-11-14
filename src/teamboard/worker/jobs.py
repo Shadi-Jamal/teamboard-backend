@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 _MISSING_ROW_RETRY_SECONDS = 1.0
 
 HEARTBEAT_INTERVAL_SECONDS = 10
+SHUTDOWN_GRACE_SECONDS = 30
 
 
 async def startup(ctx: dict[str, Any]) -> None:
@@ -97,6 +98,9 @@ def create_worker(settings: Settings, **overrides: Any) -> Worker:
         "max_jobs": 10,
         # Heartbeat written to Redis; read by `python -m teamboard.worker --check`.
         "health_check_interval": HEARTBEAT_INTERVAL_SECONDS,
+        # On SIGTERM: take no new jobs and give running ones this long to finish
+        # before they are cancelled (a cancelled export is simply retried later).
+        "job_completion_wait": SHUTDOWN_GRACE_SECONDS,
         # JSON instead of pickle - must match the producer (see infra/redis.py).
         "job_serializer": serialize_job,
         "job_deserializer": deserialize_job,
