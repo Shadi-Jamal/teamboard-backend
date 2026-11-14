@@ -203,12 +203,18 @@ async def _send(
     )
 
 
-def _comparable(response: httpx.Response) -> tuple[int, str | None, dict[str, Any]]:
-    """Everything an attacker could compare between two responses."""
+def _comparable(response: httpx.Response) -> tuple[int, dict[str, str], dict[str, Any]]:
+    """Everything an attacker could compare between two responses: status, all
+    headers (including the body length) and the body itself."""
     body = response.json()
     body.pop("request_id")
     body.pop("instance")  # echoes the URL the attacker chose themselves
-    return response.status_code, response.headers.get("content-type"), body
+    headers = {
+        name: value
+        for name, value in response.headers.items()
+        if name not in ("x-request-id", "ratelimit-remaining")  # differ on every request
+    }
+    return response.status_code, headers, body
 
 
 async def fingerprint(db: AdminDb, world: TenantWorld) -> dict[str, str]:

@@ -243,3 +243,33 @@ async def test_unknown_invitation_cannot_be_revoked(api: ApiDriver) -> None:
     response = await api.client.delete(f"/v1/invitations/{uuid.uuid4()}", headers=ws.headers())
 
     assert_problem(response, 404, "not_found")
+
+
+async def test_concurrent_invitations_for_one_address_leave_a_single_open_one(
+    api: ApiDriver, db: AdminDb
+) -> None:
+    """Race between two admins inviting the same person: whatever the interleaving,
+    exactly one invitation is open afterwards (partial unique index)."""
+    ws = await api.create_workspace()
+    email = f"{unique('wanted')}@example.com"
+
+    responses = await asyncio.gather(
+        *(
+            api.client.post("/v1/invitations", json={"email": email}, headers=ws.headers())
+            for _ in range(6)
+        )
+    )
+
+    statuses = {r.status_code for r in responses}
+    assert statuses <= {201, 409}
+    assert 201 in statuses
+    for response in responses:
+        if response.status_code == 409:
+            assert response.json()["code"] == "invitation_conflict"
+    pending = await db.scalar(
+        "SELECT count(*) FROM invitations WHERE tenant_id = :t AND email = :e "
+        "AND accepted_at IS NULL AND revoked_at IS NULL",
+        t=uuid.UUID(ws.tenant_id),
+        e=email,
+    )
+    assert pending == 1

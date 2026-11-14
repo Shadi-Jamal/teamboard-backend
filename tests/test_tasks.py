@@ -251,3 +251,23 @@ async def test_unknown_task_is_not_found(api: ApiDriver) -> None:
         api.client.post(f"/v1/tasks/{missing}/restore", headers=headers),
     ):
         assert_problem(await request, 404, "not_found")
+
+
+async def test_no_op_changes_are_not_recorded(api: ApiDriver) -> None:
+    ws = await api.create_workspace()
+    project = await api.create_project(ws)
+    task = await api.create_task(ws, project["id"], title="Same", priority="low")
+
+    unchanged = await api.client.patch(
+        f"/v1/tasks/{task['id']}", json={"title": "Same", "priority": "low"}, headers=ws.headers()
+    )
+    restored_while_live = await api.client.post(
+        f"/v1/tasks/{task['id']}/restore", headers=ws.headers()
+    )
+
+    assert unchanged.json() == task
+    assert restored_while_live.json() == task
+    actions = [
+        e["action"] for e in await api.collect("/v1/audit-logs", ws.headers(), entity_id=task["id"])
+    ]
+    assert actions == ["task.created"]
