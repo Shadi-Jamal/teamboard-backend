@@ -4,12 +4,12 @@ from datetime import datetime
 from pydantic import AwareDatetime, BaseModel, EmailStr, Field
 
 from teamboard.domain import Plan, Role
-from teamboard.schemas.common import Schema
+from teamboard.schemas.common import RequestModel, Schema
 
 SLUG_PATTERN = r"^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])$"
 
 
-class TenantCreate(BaseModel):
+class TenantCreate(RequestModel):
     name: str = Field(min_length=1, max_length=100, examples=["Acme Inc."])
     slug: str = Field(
         pattern=SLUG_PATTERN,
@@ -18,7 +18,7 @@ class TenantCreate(BaseModel):
     )
 
 
-class TenantUpdate(BaseModel):
+class TenantUpdate(RequestModel):
     name: str = Field(min_length=1, max_length=100)
 
 
@@ -67,14 +67,14 @@ class MemberRead(BaseModel):
     joined_at: datetime
 
 
-class MemberUpdate(BaseModel):
+class MemberUpdate(RequestModel):
     role: Role
 
 
 # ------------------------------------------------------------------- invitations
 
 
-class InvitationCreate(BaseModel):
+class InvitationCreate(RequestModel):
     email: EmailStr = Field(max_length=320, examples=["grace@example.com"])
     role: Role = Field(default=Role.MEMBER, description="`admin`, `member` or `viewer`.")
 
@@ -96,7 +96,7 @@ class InvitationCreated(InvitationRead):
     )
 
 
-class InvitationAccept(BaseModel):
+class InvitationAccept(RequestModel):
     token: str = Field(min_length=1, max_length=512)
 
 
@@ -109,7 +109,7 @@ class MembershipRead(Schema):
 # ---------------------------------------------------------------------- API keys
 
 
-class ApiKeyCreate(BaseModel):
+class ApiKeyCreate(RequestModel):
     name: str = Field(min_length=1, max_length=100, examples=["CI pipeline"])
     scopes: list[str] = Field(
         min_length=1,

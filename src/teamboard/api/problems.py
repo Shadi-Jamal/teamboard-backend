@@ -19,7 +19,7 @@ from teamboard.schemas.common import Problem
 
 PROBLEM_MEDIA_TYPE = "application/problem+json"
 
-_HTTP_ERROR_CODES = {404: "not_found", 405: "method_not_allowed"}
+_HTTP_ERROR_CODES = {404: "not_found", 405: "method_not_allowed", 413: "payload_too_large"}
 
 
 def problem_response(

@@ -4,25 +4,25 @@ from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field
 
-from teamboard.schemas.common import Schema
+from teamboard.schemas.common import RequestModel, Schema
 
 # The upper bound stops oversized inputs from turning Argon2 into a DoS vector.
 PASSWORD_MIN_LENGTH = 12
 PASSWORD_MAX_LENGTH = 128
 
 
-class RegisterRequest(BaseModel):
+class RegisterRequest(RequestModel):
     email: EmailStr = Field(max_length=320, examples=["ada@example.com"])
     password: str = Field(min_length=PASSWORD_MIN_LENGTH, max_length=PASSWORD_MAX_LENGTH)
     full_name: str = Field(min_length=1, max_length=120, examples=["Ada Lovelace"])
 
 
-class LoginRequest(BaseModel):
+class LoginRequest(RequestModel):
     email: EmailStr = Field(max_length=320, examples=["ada@example.com"])
     password: str = Field(min_length=1, max_length=PASSWORD_MAX_LENGTH)
 
 
-class RefreshRequest(BaseModel):
+class RefreshRequest(RequestModel):
     refresh_token: str = Field(min_length=1, max_length=512)
 
 

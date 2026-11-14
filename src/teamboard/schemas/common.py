@@ -9,6 +9,16 @@ class Schema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class RequestModel(BaseModel):
+    """Base for request bodies: unknown fields are an error, not silently ignored.
+
+    A client that sends e.g. ``tenant_id`` in a body learns immediately that the
+    field has no effect, instead of assuming it was honoured.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class PageResponse[T](BaseModel):
     items: list[T]
     next_cursor: str | None = Field(

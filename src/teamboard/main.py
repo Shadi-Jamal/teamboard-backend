@@ -160,7 +160,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # Replaces FastAPI's default validation error schema with the problem format.
         responses=problem_responses(422),
     )
-    app.add_middleware(RequestContextMiddleware)
+    app.add_middleware(RequestContextMiddleware, max_body_bytes=settings.max_request_body_bytes)
     register_exception_handlers(app)
 
     for router in ROUTERS:

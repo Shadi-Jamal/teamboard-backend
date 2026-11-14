@@ -5,17 +5,17 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from teamboard.domain import ActorType, ExportStatus, ProjectStatus, TaskPriority, TaskStatus
-from teamboard.schemas.common import Schema
+from teamboard.schemas.common import RequestModel, Schema
 
 # ---------------------------------------------------------------------- projects
 
 
-class ProjectCreate(BaseModel):
+class ProjectCreate(RequestModel):
     name: str = Field(min_length=1, max_length=120, examples=["Website relaunch"])
     description: str = Field(default="", max_length=10_000)
 
 
-class ProjectUpdate(BaseModel):
+class ProjectUpdate(RequestModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     description: str | None = Field(default=None, max_length=10_000)
     status: ProjectStatus | None = None
@@ -33,7 +33,7 @@ class ProjectRead(Schema):
 # ------------------------------------------------------------------------- tasks
 
 
-class TaskCreate(BaseModel):
+class TaskCreate(RequestModel):
     title: str = Field(min_length=1, max_length=200, examples=["Draft the landing page"])
     description: str = Field(default="", max_length=10_000)
     status: TaskStatus = TaskStatus.TODO
@@ -44,7 +44,7 @@ class TaskCreate(BaseModel):
     due_date: date | None = None
 
 
-class TaskUpdate(BaseModel):
+class TaskUpdate(RequestModel):
     title: str | None = Field(default=None, min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=10_000)
     status: TaskStatus | None = None

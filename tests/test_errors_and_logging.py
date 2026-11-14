@@ -3,10 +3,12 @@ import logging
 import re
 import sys
 import uuid
+from collections.abc import AsyncIterator
 
 import httpx
 import pytest
 
+from teamboard.config import Settings
 from teamboard.context import actor_var, request_id_var, tenant_id_var
 from teamboard.logging_config import JsonFormatter, configure_logging
 from teamboard.services.projects import ProjectService
@@ -118,6 +120,82 @@ async def test_the_application_keeps_working_after_an_unexpected_error(
 
     assert failed.status_code == 500
     assert recovered.status_code == 200
+
+
+# ---------------------------------------------------------------- request bodies
+
+
+async def test_validation_errors_do_not_echo_submitted_values(client: httpx.AsyncClient) -> None:
+    """A rejected password (or any other input) is never reflected in the response."""
+    response = await client.post(
+        "/v1/auth/register",
+        json={"email": "a@example.com", "password": "hunter2", "full_name": "A"},
+    )
+
+    assert_problem(response, 422, "validation_error")
+    assert "hunter2" not in response.text
+
+
+async def test_unknown_body_fields_are_rejected(api: ApiDriver) -> None:
+    """In particular a client cannot believe it selected a tenant through the body."""
+    ws, other = await api.create_workspace(), await api.create_workspace()
+
+    response = await api.client.post(
+        "/v1/projects", json={"name": "x", "tenant_id": other.tenant_id}, headers=ws.headers()
+    )
+
+    body = assert_problem(response, 422, "validation_error")
+    assert body["errors"] == [
+        {
+            "field": "body.tenant_id",
+            "message": "Extra inputs are not permitted",
+            "type": "extra_forbidden",
+        }
+    ]
+    assert await api.collect("/v1/projects", ws.headers()) == []
+
+
+async def test_oversized_body_is_rejected_before_it_is_read(
+    client: httpx.AsyncClient, settings: Settings
+) -> None:
+    too_big = b"x" * (settings.max_request_body_bytes + 1)
+
+    response = await client.post(
+        "/v1/auth/login", content=too_big, headers={"Content-Type": "application/json"}
+    )
+
+    body = assert_problem(response, 413, "payload_too_large")
+    assert str(settings.max_request_body_bytes) in body["detail"]
+    assert response.headers["X-Request-ID"] == body["request_id"]
+
+
+async def test_oversized_chunked_body_is_rejected_while_streaming(
+    client: httpx.AsyncClient, settings: Settings
+) -> None:
+    """No Content-Length to check up front: the bytes are counted as they arrive."""
+
+    async def chunks() -> AsyncIterator[bytes]:
+        for _ in range(settings.max_request_body_bytes // 65_536 + 2):
+            yield b"x" * 65_536
+
+    response = await client.post(
+        "/v1/auth/login", content=chunks(), headers={"Content-Type": "application/json"}
+    )
+
+    assert "content-length" not in response.request.headers
+    assert_problem(response, 413, "payload_too_large")
+
+
+async def test_body_at_the_limit_is_accepted(client: httpx.AsyncClient, settings: Settings) -> None:
+    padding = "x" * (settings.max_request_body_bytes - 100)
+    payload = json.dumps({"email": "a@example.com", "password": "p", "pad": padding}).encode()
+    assert len(payload) <= settings.max_request_body_bytes
+
+    response = await client.post(
+        "/v1/auth/login", content=payload, headers={"Content-Type": "application/json"}
+    )
+
+    assert_problem(response, 422, "validation_error")  # parsed and validated, not refused
 
 
 # ------------------------------------------------------------------ request IDs

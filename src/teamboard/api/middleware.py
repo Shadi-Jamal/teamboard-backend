@@ -1,10 +1,12 @@
-"""Request context middleware: request IDs, access logs and the last-resort error handler."""
+"""Request context middleware: request IDs, access logs, the request body limit
+and the last-resort error handler."""
 
 import logging
 import re
 import time
 import uuid
 
+from fastapi import HTTPException
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -22,15 +24,17 @@ class RequestContextMiddleware:
     """Pure ASGI middleware (not BaseHTTPMiddleware), so context variables set by
     downstream dependencies stay visible here for the access log."""
 
-    def __init__(self, app: ASGIApp) -> None:
+    def __init__(self, app: ASGIApp, *, max_body_bytes: int) -> None:
         self.app = app
+        self.max_body_bytes = max_body_bytes
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
 
-        incoming = Headers(scope=scope).get(REQUEST_ID_HEADER, "")
+        request_headers = Headers(scope=scope)
+        incoming = request_headers.get(REQUEST_ID_HEADER, "")
         request_id = incoming if _VALID_REQUEST_ID.match(incoming) else uuid.uuid4().hex
         state = scope.setdefault("state", {})
 
@@ -59,8 +63,40 @@ class RequestContextMiddleware:
                     headers["RateLimit-Remaining"] = str(rate_limit.remaining)
             await send(message)
 
+        too_large = HTTPException(
+            status_code=413,
+            detail=f"The request body exceeds the limit of {self.max_body_bytes} bytes.",
+        )
+        received_bytes = 0
+
+        async def receive_with_limit() -> Message:
+            # Counts what actually arrives, so the limit also holds for chunked
+            # uploads and for clients that understate Content-Length.
+            nonlocal received_bytes
+            message = await receive()
+            if message["type"] == "http.request":
+                received_bytes += len(message.get("body", b""))
+                if received_bytes > self.max_body_bytes:
+                    raise too_large
+            return message
+
         try:
-            await self.app(scope, receive, send_with_headers)
+            declared_length = request_headers.get("content-length", "")
+            if declared_length.isdigit() and int(declared_length) > self.max_body_bytes:
+                # Refuse up front, without reading the body at all.
+                raise too_large
+            await self.app(scope, receive_with_limit, send_with_headers)
+        except HTTPException as exc:
+            if response_started or exc is not too_large:
+                raise
+            response = problem_response(
+                status=413,
+                code="payload_too_large",
+                title="Content Too Large",
+                detail=exc.detail,
+                instance=scope["path"],
+            )
+            await response(scope, receive, send_with_headers)
         except Exception:
             logger.exception("unhandled exception")
             if response_started:
