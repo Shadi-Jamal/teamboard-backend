@@ -263,3 +263,37 @@ async def build_tenant_world(api: ApiDriver) -> TenantWorld:
         api_key_secret=secret,
         export=response.json(),
     )
+
+
+def assert_problem(response: httpx.Response, status: int, code: str) -> dict[str, Any]:
+    """Assert an RFC 7807 error response and return its body."""
+    assert response.status_code == status, response.text
+    assert response.headers["content-type"] == "application/problem+json"
+    body: dict[str, Any] = response.json()
+    assert body["status"] == status
+    assert body["code"] == code
+    assert body["type"] == f"urn:teamboard:problem:{code}"
+    assert body["title"]
+    assert body["request_id"] == response.headers["X-Request-ID"]
+    return body
+
+
+class AdminDb:
+    """Superuser SQL access for assertions about what is really stored, and for
+    setting up states the public API cannot produce (expiry, plans, ...)."""
+
+    def __init__(self, engine: AsyncEngine) -> None:
+        self._engine = engine
+
+    async def scalar(self, sql: str, **params: Any) -> Any:
+        async with self._engine.connect() as connection:
+            return (await connection.execute(text(sql), params)).scalar_one()
+
+    async def column(self, sql: str, **params: Any) -> list[Any]:
+        async with self._engine.connect() as connection:
+            return list((await connection.execute(text(sql), params)).scalars().all())
+
+    async def execute(self, sql: str, **params: Any) -> int:
+        async with self._engine.begin() as connection:
+            result = await connection.execute(text(sql), params)
+            return int(result.rowcount)

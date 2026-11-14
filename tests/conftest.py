@@ -28,7 +28,7 @@ from testcontainers.redis import RedisContainer
 from teamboard.api.deps import AppResources
 from teamboard.config import Settings
 from teamboard.main import create_app
-from tests.support import ApiDriver, TenantWorld, build_tenant_world
+from tests.support import AdminDb, ApiDriver, TenantWorld, build_tenant_world
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -175,3 +175,8 @@ async def worlds(
     await resources.redis.flushdb()
     driver = ApiDriver(client, admin_engine)
     return await build_tenant_world(driver), await build_tenant_world(driver)
+
+
+@pytest.fixture
+def db(admin_engine: AsyncEngine) -> AdminDb:
+    return AdminDb(admin_engine)
