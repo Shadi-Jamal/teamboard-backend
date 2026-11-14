@@ -76,7 +76,7 @@ python_version = "3.12"
 strict = true
 warn_unreachable = true
 plugins = ["pydantic.mypy"]
-files = ["src", "tests", "migrations"]
+files = ["src", "tests", "migrations", "scripts"]
 mypy_path = "src"
 
 [[tool.mypy.overrides]]
