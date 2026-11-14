@@ -77,6 +77,22 @@ _TAGS = [
 ]
 
 
+# Every router of the application. Tests enumerate this to prove that each route is
+# either explicitly tenant-free or covered by the cross-tenant leak matrix.
+ROUTERS = (
+    health.router,
+    auth.router,
+    tenants.router,
+    members.router,
+    invitations.router,
+    api_keys.router,
+    projects.router,
+    tasks.router,
+    audit.router,
+    exports.router,
+)
+
+
 def _operation_id(route: APIRoute) -> str:
     return route.name
 
@@ -147,19 +163,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(RequestContextMiddleware)
     register_exception_handlers(app)
 
-    for module in (
-        health,
-        auth,
-        tenants,
-        members,
-        invitations,
-        api_keys,
-        projects,
-        tasks,
-        audit,
-        exports,
-    ):
-        app.include_router(module.router)
+    for router in ROUTERS:
+        app.include_router(router)
 
     default_openapi = app.openapi
 

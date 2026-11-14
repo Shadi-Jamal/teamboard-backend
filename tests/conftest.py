@@ -13,6 +13,12 @@ tenants, and tenant isolation is what keeps them apart.
 import os
 import subprocess
 import sys
+
+# testcontainers' "Ryuk" reaper container intermittently fails to report its port
+# on Docker Desktop, which aborts the whole session. The fixtures below stop their
+# containers themselves (context managers), so the reaper is only a safety net for
+# a killed test process. Export TESTCONTAINERS_RYUK_DISABLED=false to re-enable it.
+os.environ.setdefault("TESTCONTAINERS_RYUK_DISABLED", "true")
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass
 from pathlib import Path

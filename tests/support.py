@@ -203,10 +203,29 @@ class TenantWorld:
     api_key: dict[str, Any]
     api_key_secret: str
     export: dict[str, Any]
+    export_idempotency_key: str
 
     @property
     def tenant_id(self) -> str:
         return self.ws.tenant_id
+
+    @property
+    def all_ids(self) -> set[str]:
+        """Every identifier that must never show up in another tenant's responses."""
+        return {
+            self.tenant_id,
+            self.ws.owner.id,
+            self.admin.id,
+            self.member.id,
+            self.viewer.id,
+            self.project["id"],
+            self.task["id"],
+            self.deleted_project["id"],
+            self.deleted_task["id"],
+            self.invitation["id"],
+            self.api_key["id"],
+            self.export["id"],
+        }
 
 
 ALL_API_KEY_SCOPES = [
@@ -244,8 +263,9 @@ async def build_tenant_world(api: ApiDriver) -> TenantWorld:
     invitation = await api.invite(ws, f"{unique('pending')}@example.com", Role.MEMBER)
     api_key, secret = await api.create_api_key(ws, ALL_API_KEY_SCOPES)
 
+    export_key = unique("idem")
     response = await api.client.post(
-        "/v1/exports", headers={**headers, "Idempotency-Key": unique("idem")}
+        "/v1/exports", headers={**headers, "Idempotency-Key": export_key}
     )
     assert response.status_code == 202, response.text
 
@@ -262,6 +282,7 @@ async def build_tenant_world(api: ApiDriver) -> TenantWorld:
         api_key=api_key,
         api_key_secret=secret,
         export=response.json(),
+        export_idempotency_key=export_key,
     )
 
 
