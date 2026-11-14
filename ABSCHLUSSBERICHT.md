@@ -1,7 +1,7 @@
 # TeamBoard – Abschlussbericht
 
-Stand: 14.11.2026 · 40 Commits auf `main` · Arbeitsverzeichnis sauber (bis auf die
-bewusst nicht eingecheckte `PROMPT.md`)
+Stand: 14.11.2026 · Branch `main` · Arbeitsverzeichnis sauber (bis auf die bewusst
+nicht eingecheckte `PROMPT.md`)
 
 ## 1. Ergebnis in Kürze
 
@@ -62,17 +62,17 @@ Entscheidungen), AWS-Leitfaden.
 
 ## 3. Verifikation – echte Ausgaben
 
-Letzter vollständiger Lauf nach der letzten Code-Änderung:
+Letzter vollständiger Lauf auf dem eingecheckten Endstand:
 
 ```text
-=== ruff format ===   111 files already formatted
+=== ruff format ===   112 files already formatted
 === ruff check ===    All checks passed!
 === mypy ===          Success: no issues found in 106 source files
 === pytest ===
 TOTAL                                    2640     25    328     26    98%
 64 files skipped due to complete coverage.
 Required test coverage of 90.0% reached. Total coverage: 98.28%
-======================== 529 passed in 64.87s (0:01:04) ========================
+529 passed in 66.04s (0:01:06)
 ```
 
 Die 25 nicht abgedeckten Zeilen sind defensive Zweige (zum Beispiel das
