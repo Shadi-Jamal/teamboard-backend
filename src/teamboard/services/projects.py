@@ -113,9 +113,11 @@ class ProjectService:
         await self._ensure_capacity()
         deleted_at = project.deleted_at
         project.deleted_at = None
-        await self._tasks.restore_for_project(project.id, deleted_at)
         self._audit.record("project.restored", "project", project.id)
+        # Flush first: the name may have been taken meanwhile, and that conflict
+        # must surface here (as a 409) rather than in a later statement's autoflush.
         await self._flush()
+        await self._tasks.restore_for_project(project.id, deleted_at)
         await self._session.commit()
         return project
 
