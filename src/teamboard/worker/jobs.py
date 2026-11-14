@@ -32,6 +32,8 @@ logger = logging.getLogger(__name__)
 # before it commits).
 _MISSING_ROW_RETRY_SECONDS = 1.0
 
+HEARTBEAT_INTERVAL_SECONDS = 10
+
 
 async def startup(ctx: dict[str, Any]) -> None:
     settings: Settings = ctx["settings"]
@@ -93,6 +95,8 @@ def create_worker(settings: Settings, **overrides: Any) -> Worker:
         "ctx": {"settings": settings},
         "job_timeout": 300,
         "max_jobs": 10,
+        # Heartbeat written to Redis; read by `python -m teamboard.worker --check`.
+        "health_check_interval": HEARTBEAT_INTERVAL_SECONDS,
     }
     options.update(overrides)
     return Worker(

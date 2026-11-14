@@ -4,14 +4,21 @@ from typing import Any
 
 import pytest
 from arq import Retry
+from arq.worker import async_check_health
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from teamboard.api.deps import AppResources
 from teamboard.config import Settings
 from teamboard.db.engine import UnsafeDatabaseRoleError
 from teamboard.domain import Plan
+from teamboard.infra.redis import redis_settings
 from teamboard.services import exports as exports_module
-from teamboard.worker.jobs import create_worker, run_export, startup
+from teamboard.worker.jobs import (
+    HEARTBEAT_INTERVAL_SECONDS,
+    create_worker,
+    run_export,
+    startup,
+)
 from tests.conftest import DatabaseUrls
 from tests.support import AdminDb, ApiDriver, Workspace, api_key_headers, assert_problem
 
@@ -352,3 +359,23 @@ async def test_only_holders_of_the_export_permission_can_access_exports(
         api.client.get(f"/v1/exports/{export['id']}/download", headers=api_key_headers(key)),
     ):
         assert_problem(await request, 403, "permission_denied")
+
+
+async def test_worker_health_check_reflects_the_heartbeat(
+    settings: Settings, resources: AppResources
+) -> None:
+    """`python -m teamboard.worker --check` is the container health check."""
+    connection = redis_settings(settings)
+    assert await async_check_health(connection) == 1  # no worker has run yet
+
+    worker = create_worker(settings, burst=True, poll_delay=0.01, handle_signals=False)
+    try:
+        await worker.async_run()
+        assert await async_check_health(connection) == 0
+        # The heartbeat expires on its own if the worker dies without cleaning up.
+        ttl = await resources.redis.ttl("arq:queue:health-check")
+        assert 0 < ttl <= HEARTBEAT_INTERVAL_SECONDS + 1
+    finally:
+        await worker.close()
+
+    assert await async_check_health(connection) == 1  # a stopped worker is unhealthy

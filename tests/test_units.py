@@ -217,6 +217,7 @@ def test_worker_entrypoint_runs_the_export_worker(
     monkeypatch.setattr(worker_entrypoint, "configure_logging", lambda level: None)
     monkeypatch.setattr(worker_entrypoint, "create_worker", fake_create_worker)
 
-    worker_entrypoint.main()
+    exit_code = worker_entrypoint.main([])
 
+    assert exit_code == 0
     assert created == [settings, "ran"]
