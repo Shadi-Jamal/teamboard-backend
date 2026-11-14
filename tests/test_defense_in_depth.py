@@ -13,6 +13,7 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager
 
 import httpx
 import pytest
+from pydantic import SecretStr
 from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -42,7 +43,9 @@ def without_rls(
     @asynccontextmanager
     async def client() -> AsyncIterator[httpx.AsyncClient]:
         monkeypatch.setattr(main_module, "assert_role_is_subject_to_rls", skip_role_check)
-        application = create_app(settings.model_copy(update={"database_url": database_urls.admin}))
+        application = create_app(
+            settings.model_copy(update={"database_url": SecretStr(database_urls.admin)})
+        )
         async with (
             application.router.lifespan_context(application),
             httpx.AsyncClient(

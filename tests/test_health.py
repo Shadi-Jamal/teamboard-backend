@@ -1,5 +1,6 @@
 import httpx
 import pytest
+from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from teamboard.api.deps import AppResources
@@ -46,7 +47,7 @@ async def test_startup_refuses_a_role_that_bypasses_rls(
 ) -> None:
     """Pointing the app at the owner/superuser role must fail loudly at startup,
     because that role ignores every row-level security policy."""
-    unsafe = settings.model_copy(update={"database_url": database_urls.admin})
+    unsafe = settings.model_copy(update={"database_url": SecretStr(database_urls.admin)})
     application = create_app(unsafe)
 
     with pytest.raises(UnsafeDatabaseRoleError, match="bypasses row-level security"):

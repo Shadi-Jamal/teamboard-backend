@@ -1,5 +1,6 @@
 """Job queue producer (Redis via arq). The consumer lives in ``teamboard.worker``."""
 
+import asyncio
 import uuid
 
 from arq.connections import ArqRedis
@@ -8,6 +9,7 @@ from redis.exceptions import RedisError
 from teamboard.errors import AppError
 
 EXPORT_JOB = "run_export"
+ENQUEUE_TIMEOUT_SECONDS = 2.0
 
 
 class QueueUnavailableError(AppError):
@@ -27,10 +29,13 @@ class JobQueue:
         idempotent: arq ignores a second job with the same ID.
         """
         try:
-            await self._redis.enqueue_job(
-                EXPORT_JOB, str(tenant_id), str(job_id), _job_id=f"export:{job_id}"
+            await asyncio.wait_for(
+                self._redis.enqueue_job(
+                    EXPORT_JOB, str(tenant_id), str(job_id), _job_id=f"export:{job_id}"
+                ),
+                timeout=ENQUEUE_TIMEOUT_SECONDS,
             )
-        except RedisError as exc:
+        except (RedisError, TimeoutError, OSError) as exc:
             raise QueueUnavailableError(
                 "The job queue is temporarily unavailable. Please retry."
             ) from exc

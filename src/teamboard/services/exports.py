@@ -177,6 +177,8 @@ class ExportProcessor:
         job = await self._jobs.get(job_id, for_update=True)
         if job is None:
             return False
+        if job.status in (ExportStatus.SUCCEEDED, ExportStatus.FAILED):
+            return True  # another delivery of the same job finished meanwhile
         job.status = ExportStatus.SUCCEEDED
         job.result = document
         job.last_error = None

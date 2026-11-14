@@ -8,6 +8,7 @@ from arq.connections import ArqRedis
 
 from teamboard.api.deps import AppResources
 from teamboard.domain import PLAN_LIMITS, Plan, Role
+from teamboard.infra import rate_limit as rate_limit_module
 from teamboard.infra.queue import QueueUnavailableError
 from teamboard.infra.rate_limit import RateLimiter, UsageCounter
 from teamboard.services.exports import _seconds_until_utc_midnight
@@ -208,3 +209,27 @@ async def test_export_quota_is_refunded_when_the_job_cannot_be_queued(
 def test_quota_retry_after_points_at_the_next_utc_midnight() -> None:
     assert _seconds_until_utc_midnight(datetime(2030, 1, 1, 23, 59, 30, tzinfo=UTC)) == 31
     assert _seconds_until_utc_midnight(datetime(2030, 1, 1, 0, 0, 0, tzinfo=UTC)) == 86_401
+
+
+async def test_limiters_fail_open_when_redis_hangs(
+    resources: AppResources, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A Redis that accepts the command but never answers must not stall requests:
+    every call is time-bounded and then treated like an outage."""
+    monkeypatch.setattr(rate_limit_module, "REDIS_TIMEOUT_SECONDS", 0.05)
+
+    async def never_answers(*args: object, **kwargs: object) -> None:
+        await asyncio.sleep(3600)
+
+    limiter, counter = RateLimiter(resources.redis), UsageCounter(resources.redis)
+    monkeypatch.setattr(limiter, "_script", never_answers)
+    monkeypatch.setattr(counter, "_script", never_answers)
+
+    started = asyncio.get_running_loop().time()
+    result = await limiter.consume("any", limit=1)
+    counted = await counter.increment("any", limit=1, window_seconds=60)
+    elapsed = asyncio.get_running_loop().time() - started
+
+    assert result.allowed is True
+    assert counted.allowed is True
+    assert elapsed < 1.0

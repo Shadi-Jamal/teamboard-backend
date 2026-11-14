@@ -23,7 +23,7 @@ from teamboard.context import tenant_id_var
 from teamboard.db.engine import assert_role_is_subject_to_rls, create_engine, create_sessionmaker
 from teamboard.db.rls import set_rls_context
 from teamboard.infra.queue import EXPORT_JOB
-from teamboard.infra.redis import redis_settings
+from teamboard.infra.redis import deserialize_job, redis_settings, serialize_job
 from teamboard.services.exports import ExportProcessor
 
 logger = logging.getLogger(__name__)
@@ -97,6 +97,9 @@ def create_worker(settings: Settings, **overrides: Any) -> Worker:
         "max_jobs": 10,
         # Heartbeat written to Redis; read by `python -m teamboard.worker --check`.
         "health_check_interval": HEARTBEAT_INTERVAL_SECONDS,
+        # JSON instead of pickle - must match the producer (see infra/redis.py).
+        "job_serializer": serialize_job,
+        "job_deserializer": deserialize_job,
     }
     options.update(overrides)
     return Worker(

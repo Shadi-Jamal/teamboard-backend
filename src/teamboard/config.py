@@ -24,15 +24,18 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"  # noqa: S104 - the service runs inside a container
     port: int = 8000
     forwarded_allow_ips: str = "127.0.0.1"
+    # Larger request bodies are rejected with 413 before they are parsed.
+    max_request_body_bytes: int = Field(default=1_048_576, ge=1024)
 
     # PostgreSQL. The runtime role must be subject to row-level security; migrations
     # use a separate owner role configured through MIGRATION_DATABASE_URL.
-    database_url: str
+    # Connection strings embed passwords, so they are masked like any other secret.
+    database_url: SecretStr
     db_pool_size: int = Field(default=10, ge=1)
     db_max_overflow: int = Field(default=10, ge=0)
     db_statement_timeout_ms: int = Field(default=30_000, ge=0)
 
-    redis_url: str
+    redis_url: SecretStr
 
     # Authentication
     jwt_secret: SecretStr

@@ -3,19 +3,33 @@
 Both primitives are single Lua scripts, so check-and-update is atomic across any
 number of API instances.
 
-Failure policy: if Redis is unavailable these helpers **fail open** (the request is
-allowed and a warning is logged). Losing throttling for a while is preferable to a
-Redis outage taking down every API call; readiness still reports Redis as down.
+Failure policy: if Redis is unavailable *or slow* these helpers **fail open** (the
+request is allowed and a warning is logged). Losing throttling for a while is
+preferable to a Redis outage taking down every API call; readiness still reports
+Redis as down. Every call is bounded by ``REDIS_TIMEOUT_SECONDS`` so that a Redis
+that accepts connections but does not answer cannot stall requests either.
 """
 
+import asyncio
 import logging
 import math
+from collections.abc import Awaitable
 from dataclasses import dataclass
 
 from arq.connections import ArqRedis
 from redis.exceptions import RedisError
 
 logger = logging.getLogger(__name__)
+
+REDIS_TIMEOUT_SECONDS = 1.0
+
+# Everything that means "Redis did not answer (in time)".
+_UNAVAILABLE = (RedisError, TimeoutError, OSError)
+
+
+async def _bounded[T](operation: Awaitable[T]) -> T:
+    return await asyncio.wait_for(operation, timeout=REDIS_TIMEOUT_SECONDS)
+
 
 # Token bucket. A bucket holds up to `capacity` tokens and refills continuously at
 # `capacity / period` tokens per second; each request takes one token. Time comes
@@ -86,10 +100,10 @@ class RateLimiter:
     async def consume(self, key: str, *, limit: int, period_seconds: int = 60) -> RateLimitResult:
         """Take one token from the bucket ``key`` allowing ``limit`` requests per period."""
         try:
-            allowed, remaining, retry_after = await self._script(
-                keys=[f"ratelimit:{key}"], args=[limit, period_seconds]
+            allowed, remaining, retry_after = await _bounded(
+                self._script(keys=[f"ratelimit:{key}"], args=[limit, period_seconds])
             )
-        except RedisError:
+        except _UNAVAILABLE:
             logger.warning("rate limiter unavailable, allowing request", exc_info=True)
             return RateLimitResult(allowed=True, limit=limit, remaining=limit, retry_after=0)
         return RateLimitResult(
@@ -110,8 +124,10 @@ class UsageCounter:
     async def increment(self, key: str, *, limit: int, window_seconds: int) -> CounterResult:
         """Count one use unless ``limit`` has been reached within the window."""
         try:
-            allowed, used = await self._script(keys=[f"usage:{key}"], args=[limit, window_seconds])
-        except RedisError:
+            allowed, used = await _bounded(
+                self._script(keys=[f"usage:{key}"], args=[limit, window_seconds])
+            )
+        except _UNAVAILABLE:
             logger.warning("usage counter unavailable, allowing request", exc_info=True)
             return CounterResult(allowed=True, used=0)
         return CounterResult(allowed=bool(allowed), used=int(used))
@@ -119,14 +135,14 @@ class UsageCounter:
     async def refund(self, key: str) -> None:
         """Give back one use (the counted operation did not happen after all)."""
         try:
-            await self._redis.decr(f"usage:{key}")
-        except RedisError:
+            await _bounded(self._redis.decr(f"usage:{key}"))
+        except _UNAVAILABLE:
             logger.warning("usage counter unavailable, refund skipped", exc_info=True)
 
     async def current(self, key: str) -> int:
         try:
-            value = await self._redis.get(f"usage:{key}")
-        except RedisError:
+            value = await _bounded(self._redis.get(f"usage:{key}"))
+        except _UNAVAILABLE:
             logger.warning("usage counter unavailable", exc_info=True)
             return 0
         return max(0, int(value)) if value is not None else 0
@@ -134,13 +150,13 @@ class UsageCounter:
     async def ttl(self, key: str) -> int:
         """Seconds until the window resets (at least 1)."""
         try:
-            value = int(await self._redis.ttl(f"usage:{key}"))
-        except RedisError:
+            value = int(await _bounded(self._redis.ttl(f"usage:{key}")))
+        except _UNAVAILABLE:
             return 1
         return max(1, value)
 
     async def reset(self, key: str) -> None:
         try:
-            await self._redis.delete(f"usage:{key}")
-        except RedisError:
+            await _bounded(self._redis.delete(f"usage:{key}"))
+        except _UNAVAILABLE:
             logger.warning("usage counter unavailable, reset skipped", exc_info=True)

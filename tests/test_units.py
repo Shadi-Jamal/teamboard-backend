@@ -49,7 +49,11 @@ def test_settings_have_safe_defaults() -> None:
     assert settings.access_token_ttl_seconds == 900
     assert settings.refresh_token_ttl_seconds == 30 * 24 * 3600
     assert (settings.argon2_time_cost, settings.argon2_memory_cost_kib) == (3, 65_536)
-    assert "s" * 40 not in repr(settings)  # secrets are masked in logs and tracebacks
+    # Secrets - including the passwords inside connection strings - are masked
+    # wherever the settings object might be printed (logs, tracebacks).
+    assert "s" * 40 not in repr(settings)
+    assert "app:app@" not in repr(settings)
+    assert "redis://localhost" not in repr(settings)
 
 
 def test_short_jwt_secret_is_rejected() -> None:
@@ -81,7 +85,7 @@ def test_settings_are_read_from_the_environment(monkeypatch: pytest.MonkeyPatch)
     get_settings.cache_clear()
     try:
         settings = get_settings()
-        assert settings.redis_url == "redis://cache:6379/1"
+        assert settings.redis_url.get_secret_value() == "redis://cache:6379/1"
         assert settings.access_token_ttl_seconds == 60
         assert get_settings() is settings
     finally:

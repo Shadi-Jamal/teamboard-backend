@@ -1,17 +1,21 @@
+import json
 import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 import pytest
 from arq import Retry
+from arq.connections import ArqRedis
 from arq.worker import async_check_health
+from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from teamboard.api.deps import AppResources
 from teamboard.config import Settings
 from teamboard.db.engine import UnsafeDatabaseRoleError
 from teamboard.domain import Plan
-from teamboard.infra.redis import redis_settings
+from teamboard.infra.queue import JobQueue, QueueUnavailableError
+from teamboard.infra.redis import deserialize_job, redis_settings, serialize_job
 from teamboard.services import exports as exports_module
 from teamboard.worker.jobs import (
     HEARTBEAT_INTERVAL_SECONDS,
@@ -339,7 +343,7 @@ async def test_worker_cannot_be_pointed_at_another_tenants_job(
 async def test_worker_refuses_to_start_with_a_role_that_bypasses_rls(
     settings: Settings, database_urls: DatabaseUrls
 ) -> None:
-    unsafe = settings.model_copy(update={"database_url": database_urls.admin})
+    unsafe = settings.model_copy(update={"database_url": SecretStr(database_urls.admin)})
 
     with pytest.raises(UnsafeDatabaseRoleError):
         await startup({"settings": unsafe})
@@ -379,3 +383,80 @@ async def test_worker_health_check_reflects_the_heartbeat(
         await worker.close()
 
     assert await async_check_health(connection) == 1  # a stopped worker is unhealthy
+
+
+# ------------------------------------------------------------------- the queue
+
+
+async def test_queue_payloads_are_json_not_pickle(api: ApiDriver, resources: AppResources) -> None:
+    """Unpickling runs code, so pickle on the queue would turn write access to
+    Redis into code execution in the worker. Payloads are plain JSON identifiers."""
+    ws = await api.create_workspace()
+    export = await _request_export(api, ws)
+
+    raw = await resources.redis.get(f"arq:job:export:{export['id']}")
+
+    assert raw is not None
+    payload = json.loads(raw)  # fails loudly if this were a pickle
+    assert payload["f"] == "run_export"
+    assert payload["a"] == [ws.tenant_id, export["id"]]
+    assert payload["k"] == {}
+    assert not raw.startswith(b"\x80")  # pickle protocol marker
+
+
+def test_job_serializer_never_fails_on_exception_results() -> None:
+    encoded = serialize_job({"r": ValueError("boom"), "id": uuid.UUID(int=1)})
+
+    assert deserialize_job(encoded) == {
+        "r": "ValueError('boom')",
+        "id": "UUID('00000000-0000-0000-0000-000000000001')",
+    }
+
+
+async def test_enqueue_reports_an_unavailable_queue() -> None:
+    dead_redis = ArqRedis.from_url("redis://127.0.0.1:1", socket_connect_timeout=0.2)
+
+    with pytest.raises(QueueUnavailableError):
+        await JobQueue(dead_redis).enqueue_export(uuid.uuid4(), uuid.uuid4())
+    await dead_redis.aclose()
+
+
+async def test_a_finished_export_is_not_overwritten_by_a_slower_duplicate(
+    api: ApiDriver,
+    db: AdminDb,
+    resources: AppResources,
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two deliveries of one job overlap; the faster one finishes while the slower
+    one is still building. The slower one must not replace the stored result."""
+    ws = await api.create_workspace()
+    export = await _request_export(api, ws)
+    original: Builder = exports_module.build_export_document
+
+    async def slow_builder(
+        session: AsyncSession, tenant_id: uuid.UUID, job_id: uuid.UUID
+    ) -> dict[str, Any]:
+        document = await original(session, tenant_id, job_id)
+        # ...meanwhile the other delivery completes the job:
+        await db.execute(
+            "UPDATE export_jobs SET status = 'succeeded', finished_at = now(), "
+            'result = \'{"winner": "first delivery"}\' WHERE id = :id',
+            id=job_id,
+        )
+        return document
+
+    monkeypatch.setattr(exports_module, "build_export_document", slow_builder)
+
+    outcome = await run_export(_job_context(resources, settings, 1), ws.tenant_id, export["id"])
+
+    assert outcome == "succeeded"
+    stored = await db.scalar(
+        "SELECT result FROM export_jobs WHERE id = :id", id=uuid.UUID(export["id"])
+    )
+    assert stored == {"winner": "first delivery"}
+    completed = await db.scalar(
+        "SELECT count(*) FROM audit_logs WHERE entity_id = :id AND action = 'export.completed'",
+        id=uuid.UUID(export["id"]),
+    )
+    assert completed == 0  # the duplicate recorded nothing
