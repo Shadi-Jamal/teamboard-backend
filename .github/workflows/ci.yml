@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: constraints.txt
+      - name: Install dependencies
+        run: pip install --constraint constraints.txt --editable ".[dev]"
+      - name: Check formatting
+        run: ruff format --check .
+      - name: Lint
+        run: ruff check --output-format=github .
+
+  typecheck:
+    name: Type check (mypy --strict)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: constraints.txt
+      - name: Install dependencies
+        run: pip install --constraint constraints.txt --editable ".[dev]"
+      - name: Type check
+        run: mypy
+
+  test:
+    name: Tests (PostgreSQL 16 + Redis 7)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: constraints.txt
+      - name: Install dependencies
+        run: pip install --constraint constraints.txt --editable ".[dev]"
+      # The suite starts real PostgreSQL and Redis containers through
+      # testcontainers; the runner's Docker daemon is all it needs.
+      - name: Run tests with coverage
+        run: pytest --cov --cov-report=term-missing --cov-report=xml
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage
+          path: coverage.xml
+          if-no-files-found: ignore
+
+  docker:
+    name: Image build and compose smoke test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Start the stack
+        run: docker compose up --build --detach --wait --wait-timeout 180
+      - name: Image runs as a non-root user
+        run: test "$(docker compose exec -T api id -u)" != "0"
+      - name: Smoke test (API, worker, tenant isolation)
+        run: python3 scripts/smoke_test.py http://localhost:8000
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose logs --no-color --tail 200
+      - name: Tear down
+        if: always()
+        run: docker compose down --volumes
