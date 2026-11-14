@@ -21,26 +21,27 @@ git log --oneline && git status --short
   Tests: `test_rls.py` (database level, incl. connection-pool leak tests),
   `test_repository_scoping.py` (application level with RLS bypassed),
   `test_architecture.py` (layering + "repositories cannot omit the tenant filter").
-- **Phases 3-7 - Implementation only.** Auth (argon2, JWT, rotating refresh tokens),
-  tenants/memberships/RBAC, invitations, API keys, projects/tasks/audit log,
-  rate limiting/quotas/idempotency, export worker. Code is committed and exercised
-  through fixtures, but see "In progress".
+- **Phases 3-7 - Features with tests.** Auth (argon2, JWT, rotating refresh tokens
+  with reuse detection), tenants/memberships/RBAC, invitations, API keys,
+  projects/tasks (filters, soft delete, cursor pagination), audit log, rate
+  limiting/quotas (Redis), idempotency keys, export worker with retries.
+  One test module per area (`test_auth.py` ... `test_exports.py`), including the
+  concurrency tests: refresh rotation, idempotency, project quota, invitation
+  acceptance, last-owner invariant, token bucket.
+  Bug found and fixed on the way: project restore with a reused name returned 500.
 
 ## In progress
 
-- **Feature tests for phases 3-7** (one module per area, each run and committed
-  separately): auth + refresh concurrency, tenants, members/RBAC, invitations,
-  API keys, projects, tasks, pagination, audit, idempotency, rate limits/quotas,
-  exports/worker.
+- **Phase 8 - Hardening tests.** Cross-tenant leak matrix for EVERY endpoint +
+  completeness guard, error-format/observability tests, OpenAPI tests, migration
+  tests, settings tests.
 
 ## Next
 
-1. Phase 8 - cross-tenant leak matrix for EVERY endpoint + completeness guard;
-   error/observability tests; OpenAPI tests; migration tests.
-2. Phase 9 - Dockerfile (multi-stage, non-root), docker-compose.yml, `.env.example`,
+1. Phase 9 - Dockerfile (multi-stage, non-root), docker-compose.yml, `.env.example`,
    GitHub Actions CI, README (architecture + ER diagram, decisions), ASSUMPTIONS.md,
    AWS deployment guide.
-3. Phase 10 - verify `docker compose up` end to end, critical self-review
+2. Phase 10 - verify `docker compose up` end to end, critical self-review
    (tenant isolation, auth, RLS, races), fixes, coverage, final report (German).
 
 ## Notes for whoever resumes
