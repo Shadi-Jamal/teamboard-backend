@@ -30,19 +30,26 @@ git log --oneline && git status --short
   acceptance, last-owner invariant, token bucket.
   Bug found and fixed on the way: project restore with a reused name returned 500.
 
+- **Phase 8 - Hardening tests.** `test_cross_tenant.py`: leak matrix over all 29
+  tenant-scoped routes (foreign object ID, foreign tenant header, redirected API
+  key, collections/filters; the victim's data is fingerprinted before and after
+  every attack) plus a completeness guard that fails when a route is added without
+  a matrix entry. `test_defense_in_depth.py`: each isolation layer alone holds, and
+  with both removed the leak is real (control experiment). Also error format and
+  logging, OpenAPI, migrations (round trip, `alembic check`), settings and unit
+  tests. State at the end of the phase: 489 tests, 98 % coverage, ruff + mypy clean.
+
 ## In progress
 
-- **Phase 8 - Hardening tests.** Cross-tenant leak matrix for EVERY endpoint +
-  completeness guard, error-format/observability tests, OpenAPI tests, migration
-  tests, settings tests.
+- **Phase 9 - Delivery.** Dockerfile (multi-stage, non-root), docker-compose.yml,
+  `.env.example`, GitHub Actions CI, README (architecture + ER diagram, decisions,
+  dependencies), ASSUMPTIONS.md, AWS deployment guide.
 
 ## Next
 
-1. Phase 9 - Dockerfile (multi-stage, non-root), docker-compose.yml, `.env.example`,
-   GitHub Actions CI, README (architecture + ER diagram, decisions), ASSUMPTIONS.md,
-   AWS deployment guide.
-2. Phase 10 - verify `docker compose up` end to end, critical self-review
-   (tenant isolation, auth, RLS, races), fixes, coverage, final report (German).
+1. Phase 10 - verify `docker compose up` end to end (OpenAPI docs reachable, smoke
+   flow incl. worker), critical self-review (tenant isolation, auth, RLS, races,
+   missing tests, inconsistencies), fixes, final report (German).
 
 ## Notes for whoever resumes
 
