@@ -1,0 +1,99 @@
+# Local development stack: `docker compose up --build`
+#
+#   API docs      http://localhost:8000/docs
+#   Readiness     http://localhost:8000/readyz
+#
+# The defaults below are for LOCAL DEVELOPMENT ONLY and are public by definition.
+# Override them through a .env file (see .env.example). The application refuses to
+# start with the placeholder JWT secret when ENVIRONMENT=production.
+name: teamboard
+
+x-app: &app
+  build: .
+  image: teamboard:local
+  restart: unless-stopped
+  environment: &app-environment
+    ENVIRONMENT: development
+    LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    # Runtime connections use the restricted role (subject to row-level security).
+    DATABASE_URL: postgresql+asyncpg://teamboard_app:${APP_DB_PASSWORD:-teamboard_app_dev}@db:5432/teamboard
+    REDIS_URL: redis://redis:6379/0
+    JWT_SECRET: ${JWT_SECRET:-dev-only-jwt-secret-never-use-in-production}
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: teamboard_owner
+      POSTGRES_PASSWORD: ${OWNER_DB_PASSWORD:-teamboard_owner_dev}
+      POSTGRES_DB: teamboard
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:-teamboard_app_dev}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Creates the restricted application role on first start.
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # Over TCP on purpose: during first-time initialisation PostgreSQL answers
+      # on its Unix socket only, before the init scripts have finished.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U teamboard_owner -d teamboard"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # Append-only file: queued jobs survive a restart.
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # One-off task: applies the schema as the OWNER role, then exits.
+  migrate:
+    <<: *app
+    restart: "no"
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      MIGRATION_DATABASE_URL: postgresql+asyncpg://teamboard_owner:${OWNER_DB_PASSWORD:-teamboard_owner_dev}@db:5432/teamboard
+      APP_DB_ROLE: teamboard_app
+    healthcheck:
+      disable: true
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    <<: *app
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  worker:
+    <<: *app
+    command: ["python", "-m", "teamboard.worker"]
+    healthcheck:
+      # Replaces the image's HTTP check: is a worker heartbeat present in Redis?
+      test: ["CMD", "python", "-m", "teamboard.worker", "--check"]
+      interval: 10s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  redisdata:
