@@ -27,7 +27,8 @@ ruff · mypy (strict)
 
 Related documents: [ASSUMPTIONS.md](ASSUMPTIONS.md) (every decision made where the
 brief was open) · [docs/deployment-aws.md](docs/deployment-aws.md) ·
-[PROGRESS.md](PROGRESS.md) (build log)
+[PROGRESS.md](PROGRESS.md) (build log) ·
+[ABSCHLUSSBERICHT.md](ABSCHLUSSBERICHT.md) (final report, in German)
 
 ---
 
