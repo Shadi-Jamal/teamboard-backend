@@ -97,6 +97,8 @@ addopts = "-ra --strict-markers --strict-config"
 filterwarnings = [
     # Raised inside testcontainers about its own internals; nothing to act on here.
     "ignore:The @wait_container_is_ready decorator is deprecated:DeprecationWarning",
+    # Raised inside arq when a worker closes its own Redis pool.
+    "ignore:Call to deprecated close:DeprecationWarning",
 ]
 
 # --------------------------------------------------------------------------- coverage
