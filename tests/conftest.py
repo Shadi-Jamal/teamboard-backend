@@ -28,7 +28,7 @@ from testcontainers.redis import RedisContainer
 from teamboard.api.deps import AppResources
 from teamboard.config import Settings
 from teamboard.main import create_app
-from tests.support import ApiDriver
+from tests.support import ApiDriver, TenantWorld, build_tenant_world
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -165,3 +165,13 @@ async def _clean_redis(resources: AppResources) -> None:
 @pytest.fixture
 def api(client: httpx.AsyncClient, admin_engine: AsyncEngine) -> ApiDriver:
     return ApiDriver(client, admin_engine)
+
+
+@pytest_asyncio.fixture(scope="module")
+async def worlds(
+    client: httpx.AsyncClient, admin_engine: AsyncEngine, resources: AppResources
+) -> tuple[TenantWorld, TenantWorld]:
+    """Two unrelated, fully populated tenants ("A" and "B") for isolation tests."""
+    await resources.redis.flushdb()
+    driver = ApiDriver(client, admin_engine)
+    return await build_tenant_world(driver), await build_tenant_world(driver)

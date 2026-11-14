@@ -185,3 +185,81 @@ class ApiDriver:
             cursor = body["next_cursor"]
             if cursor is None:
                 return items
+
+
+@dataclass
+class TenantWorld:
+    """A fully populated tenant: at least one row in every tenant-owned table."""
+
+    ws: Workspace
+    admin: UserSession
+    member: UserSession
+    viewer: UserSession
+    project: dict[str, Any]
+    task: dict[str, Any]
+    deleted_project: dict[str, Any]
+    deleted_task: dict[str, Any]
+    invitation: dict[str, Any]  # pending; includes the one-time token
+    api_key: dict[str, Any]
+    api_key_secret: str
+    export: dict[str, Any]
+
+    @property
+    def tenant_id(self) -> str:
+        return self.ws.tenant_id
+
+
+ALL_API_KEY_SCOPES = [
+    "tenant:read",
+    "members:read",
+    "projects:read",
+    "projects:write",
+    "projects:delete",
+    "tasks:read",
+    "tasks:write",
+    "audit:read",
+    "exports:manage",
+]
+
+
+async def build_tenant_world(api: ApiDriver) -> TenantWorld:
+    ws = await api.create_workspace(plan=Plan.PRO)
+    admin = await api.add_member(ws, Role.ADMIN)
+    member = await api.add_member(ws, Role.MEMBER)
+    viewer = await api.add_member(ws, Role.VIEWER)
+    headers = ws.headers()
+
+    project = await api.create_project(ws, description="visible project")
+    task = await api.create_task(ws, project["id"], assignee_id=member.id)
+
+    deleted_project = await api.create_project(ws)
+    await api.create_task(ws, deleted_project["id"])
+    response = await api.client.delete(f"/v1/projects/{deleted_project['id']}", headers=headers)
+    assert response.status_code == 204, response.text
+
+    deleted_task = await api.create_task(ws, project["id"])
+    response = await api.client.delete(f"/v1/tasks/{deleted_task['id']}", headers=headers)
+    assert response.status_code == 204, response.text
+
+    invitation = await api.invite(ws, f"{unique('pending')}@example.com", Role.MEMBER)
+    api_key, secret = await api.create_api_key(ws, ALL_API_KEY_SCOPES)
+
+    response = await api.client.post(
+        "/v1/exports", headers={**headers, "Idempotency-Key": unique("idem")}
+    )
+    assert response.status_code == 202, response.text
+
+    return TenantWorld(
+        ws=ws,
+        admin=admin,
+        member=member,
+        viewer=viewer,
+        project=project,
+        task=task,
+        deleted_project=deleted_project,
+        deleted_task=deleted_task,
+        invitation=invitation,
+        api_key=api_key,
+        api_key_secret=secret,
+        export=response.json(),
+    )
