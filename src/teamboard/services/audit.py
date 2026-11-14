@@ -11,8 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from teamboard.context import request_id_var
 from teamboard.db.models import AuditLog
 from teamboard.domain import Actor, TenantContext
+from teamboard.filters import AuditFilters
 from teamboard.pagination import Page, PageParams
-from teamboard.repositories.audit import AuditFilters, AuditLogRepository
+from teamboard.repositories.audit import AuditLogRepository
 
 
 def _jsonable(value: Any) -> Any:

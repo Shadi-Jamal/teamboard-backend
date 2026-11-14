@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Query
 from teamboard.api.deps import AuditServiceDep, Pagination, require
 from teamboard.api.problems import problem_responses
 from teamboard.domain import Permission
-from teamboard.repositories.audit import AuditFilters
+from teamboard.filters import AuditFilters
 from teamboard.schemas.common import PageResponse
 from teamboard.schemas.work import AuditLogRead
 

@@ -9,10 +9,11 @@ from teamboard.db.base import utcnow
 from teamboard.db.models import Task
 from teamboard.domain import ProjectStatus, TenantContext
 from teamboard.errors import ConflictError, NotFoundError, UnprocessableError
+from teamboard.filters import TaskFilters
 from teamboard.pagination import Page, PageParams
 from teamboard.repositories.memberships import MembershipRepository
 from teamboard.repositories.projects import ProjectRepository
-from teamboard.repositories.tasks import TaskFilters, TaskRepository
+from teamboard.repositories.tasks import TaskRepository
 from teamboard.schemas.work import TaskCreate, TaskRead, TaskUpdate
 from teamboard.services.audit import AuditRecorder, diff, snapshot
 from teamboard.services.idempotency import IdempotencyService, Outcome

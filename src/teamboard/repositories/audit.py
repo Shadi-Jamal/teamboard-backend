@@ -1,17 +1,7 @@
-import uuid
-from dataclasses import dataclass
-
 from teamboard.db.models import AuditLog
+from teamboard.filters import AuditFilters
 from teamboard.pagination import Page, PageParams
 from teamboard.repositories.base import TenantScopedRepository
-
-
-@dataclass(frozen=True, slots=True)
-class AuditFilters:
-    entity_type: str | None = None
-    entity_id: uuid.UUID | None = None
-    actor_id: uuid.UUID | None = None
-    action: str | None = None
 
 
 class AuditLogRepository(TenantScopedRepository[AuditLog]):

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Query, status
 from teamboard.api.deps import Pagination, TaskServiceDep, require
 from teamboard.api.problems import problem_responses
 from teamboard.domain import Permission, TaskPriority, TaskStatus
-from teamboard.repositories.tasks import TaskFilters
+from teamboard.filters import TaskFilters
 from teamboard.schemas.common import PageResponse
 from teamboard.schemas.work import TaskRead, TaskUpdate
 

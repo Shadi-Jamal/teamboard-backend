@@ -35,6 +35,14 @@ def exports_usage_key(tenant_id: uuid.UUID, now: datetime | None = None) -> str:
 
 
 @dataclass(frozen=True, slots=True)
+class TenantMembership:
+    """A tenant together with the role a particular user holds in it."""
+
+    tenant: Tenant
+    role: Role
+
+
+@dataclass(frozen=True, slots=True)
 class Usage:
     plan: Plan
     limits: PlanLimits
@@ -51,9 +59,7 @@ class TenantService:
         self._session = session
         self._tenants = TenantRepository(session)
 
-    async def create(
-        self, principal: UserPrincipal, name: str, slug: str
-    ) -> tuple[Tenant, Membership]:
+    async def create(self, principal: UserPrincipal, name: str, slug: str) -> TenantMembership:
         """Create a tenant with the caller as its first owner."""
         tenant = Tenant(id=uuid.uuid4(), name=name.strip(), slug=slug, plan=Plan.FREE)
         # The ID is generated here so the session can be scoped to the new tenant
@@ -67,17 +73,20 @@ class TenantService:
                 raise ConflictError("This slug is already taken.", code="slug_taken") from exc
             raise
 
-        membership = MembershipRepository(self._session, tenant.id).add(
+        MembershipRepository(self._session, tenant.id).add(
             Membership(user_id=principal.user_id, role=Role.OWNER)
         )
         AuditRecorder(self._session, tenant.id, Actor(ActorType.USER, principal.user_id)).record(
             "tenant.created", "tenant", tenant.id, snapshot({"name": tenant.name, "slug": slug})
         )
         await self._session.commit()
-        return tenant, membership
+        return TenantMembership(tenant, Role.OWNER)
 
-    async def list_for_user(self, principal: UserPrincipal) -> list[tuple[Tenant, Membership]]:
-        return await self._tenants.list_for_user(principal.user_id)
+    async def list_for_user(self, principal: UserPrincipal) -> list[TenantMembership]:
+        return [
+            TenantMembership(tenant, membership.role)
+            for tenant, membership in await self._tenants.list_for_user(principal.user_id)
+        ]
 
 
 class TenantSettingsService:

@@ -1,24 +1,12 @@
 import uuid
-from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import datetime
 
 from sqlalchemy import or_
 
 from teamboard.db.models import Task
-from teamboard.domain import TaskPriority, TaskStatus
+from teamboard.filters import TaskFilters
 from teamboard.pagination import Page, PageParams
 from teamboard.repositories.base import TenantScopedRepository
-
-
-@dataclass(frozen=True, slots=True)
-class TaskFilters:
-    project_id: uuid.UUID | None = None
-    status: TaskStatus | None = None
-    priority: TaskPriority | None = None
-    assignee_id: uuid.UUID | None = None
-    due_before: date | None = None
-    due_after: date | None = None
-    search: str | None = None
 
 
 class TaskRepository(TenantScopedRepository[Task]):

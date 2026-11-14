@@ -2,7 +2,6 @@ from fastapi import APIRouter, Depends, status
 
 from teamboard.api.deps import CurrentUser, TenantServiceDep, TenantSettingsDep, require
 from teamboard.api.problems import problem_responses
-from teamboard.db.models import Membership, Tenant
 from teamboard.domain import Permission
 from teamboard.schemas.tenants import (
     PlanLimitsRead,
@@ -13,20 +12,13 @@ from teamboard.schemas.tenants import (
     UsageCounts,
     UsageRead,
 )
+from teamboard.services.tenants import TenantMembership
 
 router = APIRouter(prefix="/v1/tenants", tags=["Tenants"])
 
 
-def _with_role(tenant: Tenant, membership: Membership) -> TenantWithRole:
-    return TenantWithRole(
-        id=tenant.id,
-        name=tenant.name,
-        slug=tenant.slug,
-        plan=tenant.plan,
-        created_at=tenant.created_at,
-        updated_at=tenant.updated_at,
-        role=membership.role,
-    )
+def _with_role(item: TenantMembership) -> TenantWithRole:
+    return TenantWithRole(**TenantRead.model_validate(item.tenant).model_dump(), role=item.role)
 
 
 @router.post(
@@ -44,8 +36,7 @@ async def create_tenant(
     The slug is globally unique, which makes this request naturally idempotent: a
     retry answers `409 slug_taken`.
     """
-    tenant, membership = await tenants.create(user, payload.name, payload.slug)
-    return _with_role(tenant, membership)
+    return _with_role(await tenants.create(user, payload.name, payload.slug))
 
 
 @router.get(
@@ -56,9 +47,7 @@ async def create_tenant(
 )
 async def list_my_tenants(user: CurrentUser, tenants: TenantServiceDep) -> list[TenantWithRole]:
     """All tenants the current user is a member of, with their role in each."""
-    return [
-        _with_role(tenant, membership) for tenant, membership in await tenants.list_for_user(user)
-    ]
+    return [_with_role(item) for item in await tenants.list_for_user(user)]
 
 
 @router.get(

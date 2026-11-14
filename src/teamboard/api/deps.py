@@ -39,6 +39,7 @@ from teamboard.services.api_keys import ApiKeyService
 from teamboard.services.audit import AuditService
 from teamboard.services.auth import AuthService
 from teamboard.services.exports import ExportService
+from teamboard.services.health import HealthService
 from teamboard.services.idempotency import IdempotencyService
 from teamboard.services.invitations import InvitationAcceptanceService, InvitationService
 from teamboard.services.members import MemberService
@@ -242,6 +243,10 @@ IdempotencyKeyHeader = Annotated[
 # ------------------------------------------------------------------------ services
 
 
+def get_health_service(resources: Resources) -> HealthService:
+    return HealthService(resources.engine, resources.redis)
+
+
 def get_auth_service(session: DbSession, resources: Resources) -> AuthService:
     return AuthService(
         session,
@@ -309,6 +314,7 @@ def get_export_service(
     return ExportService(session, ctx, idempotency, resources.queue, resources.counter)
 
 
+HealthServiceDep = Annotated[HealthService, Depends(get_health_service)]
 AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
 TenantServiceDep = Annotated[TenantService, Depends(get_tenant_service)]
 InvitationAcceptanceDep = Annotated[

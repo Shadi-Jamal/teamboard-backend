@@ -62,7 +62,8 @@ select = [
 
 [tool.ruff.lint.per-file-ignores]
 # Tests assert freely and use throwaway credentials.
-"tests/**" = ["S101", "S105", "S106", "S311"]
+# SQL in tests is built from table names in the ORM metadata, never from input.
+"tests/**" = ["S101", "S105", "S106", "S311", "S608"]
 # Migrations build static DDL from validated identifiers.
 "migrations/**" = ["S608"]
 
